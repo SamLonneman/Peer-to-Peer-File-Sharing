@@ -1,5 +1,5 @@
 import java.net.*;
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.io.*;
 
 public class Peer
@@ -8,20 +8,32 @@ public class Peer
 	private static ObjectOutputStream trackerOut;
  	private static ObjectInputStream trackerIn;
     private static int peerID;
-	private static ArrayList<Socket> neighbors = new ArrayList<Socket>();
+	private static String peerIP;
+    private static HashMap<Integer, String> neighbors = new HashMap<>();
 
 	public static void main(String args[])
 	{
 		try{
+			// Setup
 			trackerSocket = new Socket("localhost", 8000);
 			trackerOut = new ObjectOutputStream(trackerSocket.getOutputStream());
 			trackerOut.flush();
 			trackerIn = new ObjectInputStream(trackerSocket.getInputStream());
+			// Get your peerID from the tracker, store your own IP
             peerID = Integer.parseInt((String)trackerIn.readObject());
+			peerIP = InetAddress.getLocalHost().getHostAddress();
             System.out.println("Peer " + peerID + " started.");
-
+			// Get the list of peers from the tracker
+			int numNeighbors = Integer.parseInt((String)trackerIn.readObject());
+			for (int i = 0; i < numNeighbors; i++) {
+				int neighborID = Integer.parseInt((String)trackerIn.readObject());
+				String neighborIP = (String)trackerIn.readObject();
+				neighbors.put(neighborID, neighborIP);
+			}
+			System.out.println("Peer " + peerID + " is aware of: " + neighbors);
 			
 
+			// Stay alive
 			System.out.println("Tracker says: " + (String)trackerIn.readObject());
 		} catch (ConnectException e) {
     		System.err.println("Connection refused. You need to initiate a tracker first.");
