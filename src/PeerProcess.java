@@ -157,31 +157,36 @@ public class PeerProcess
 
         public void run()
         {
-            try {
-                // Setup
-                Socket peerSocket = new Socket(peerAddress, peerPort);
-                ObjectOutputStream peerOut = new ObjectOutputStream(peerSocket.getOutputStream());
-                peerOut.flush();
-                ObjectInputStream peerIn = new ObjectInputStream(peerSocket.getInputStream());
-                // Send handshake message
-                peerOut.writeObject(createHandshakeMessage());
-                // Receive and verify handshake message
-                byte[] handshakeMessage = (byte[])peerIn.readObject();
-                if (!getHeaderFromHandshakeMessage(handshakeMessage).equals("P2PFILESHARINGPROJ") || getPeerIdFromHandshakeMessage(handshakeMessage) != peerId) {
-                    error("Handshake failed with peer at " + peerAddress + ":" + peerPort + ".");
-                    peerSocket.close();
-                    return;
+            // Try to connect until success or failed handshake
+            while (true) {
+                try {
+                    // Connect and set up streams
+                    Socket peerSocket = new Socket(peerAddress, peerPort);
+                    ObjectOutputStream peerOut = new ObjectOutputStream(peerSocket.getOutputStream());
+                    peerOut.flush();
+                    ObjectInputStream peerIn = new ObjectInputStream(peerSocket.getInputStream());
+                    // Send handshake message
+                    peerOut.writeObject(createHandshakeMessage());
+                    // Receive and verify handshake message
+                    byte[] handshakeMessage = (byte[])peerIn.readObject();
+                    if (!getHeaderFromHandshakeMessage(handshakeMessage).equals("P2PFILESHARINGPROJ") || getPeerIdFromHandshakeMessage(handshakeMessage) != peerId) {
+                        // Handshake failed
+                        error("Handshake failed with peer at " + peerAddress + ":" + peerPort + ".");
+                        peerSocket.close();
+                    } else {
+                        // Handshake successful
+                        peerAddress = peerSocket.getInetAddress().toString();
+                        peerPort = peerSocket.getPort();
+                        log("Peer " + id + " makes a connection to Peer " + peerId + ".");
+                        // new Reader(socket).start();
+                        // new Writer(socket).start();
+                    }
+                } catch (IOException e) {
+                    error("Could not connect to peer " + peerId + " at " + peerAddress + ":" + peerPort + ". Retrying...");
+                } catch (ClassNotFoundException e) {
+                    error("Class not found");
                 }
-                // Handshake successful
-                peerAddress = peerSocket.getInetAddress().toString();
-                peerPort = peerSocket.getPort();
-                log("Peer " + id + " makes a connection to Peer " + peerId + ".");
-                // new Reader(socket).start();
-                // new Writer(socket).start();
-            } catch (IOException e) {
-                error("Error connecting to peer " + peerId + " at " + peerAddress + ":" + peerPort);
-            } catch (ClassNotFoundException e) {
-                error("Class not found");
+                break;
             }
         }
     }
