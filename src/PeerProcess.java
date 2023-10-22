@@ -73,7 +73,7 @@ public class PeerProcess
                 int peerPort = Integer.parseInt(tokens[2]);
                 boolean peerHasFile = Integer.parseInt(tokens[3]) == 1;
                 if (peerId != id) {
-                    connectToPeer(peerId, peerAddress, peerPort, peerHasFile);
+                    new Handshaker(peerId, peerAddress, peerPort, peerHasFile).start();
                 } else {
                     address = peerAddress;
                     port = peerPort;
@@ -89,28 +89,44 @@ public class PeerProcess
         }
     }
 
-    private static void connectToPeer(int peerId, String peerAddress, int peerPort, boolean peerHasFile)
+    private static class Handshaker extends Thread
     {
-        try {
-            Socket peerSocket = new Socket(peerAddress, peerPort);
-            ObjectOutputStream peerOut = new ObjectOutputStream(peerSocket.getOutputStream());
-			peerOut.flush();
-			ObjectInputStream peerIn = new ObjectInputStream(peerSocket.getInputStream());
-            peerOut.writeObject(Integer.toString(id));
-            if (Integer.parseInt((String)peerIn.readObject()) != peerId) {
-                System.out.println("Peer " + peerId + " sent unexpected peerId. Handshake failed.");
-                peerSocket.close();
-                return;
+        private int peerId;
+        private String peerAddress;
+        private int peerPort;
+        private boolean peerHasFile;
+
+        public Handshaker(int peerId, String peerAddress, int peerPort, boolean peerHasFile)
+        {
+            this.peerId = peerId;
+            this.peerAddress = peerAddress;
+            this.peerPort = peerPort;
+            this.peerHasFile = peerHasFile;
+        }
+
+        public void run()
+        {
+            try {
+                Socket peerSocket = new Socket(peerAddress, peerPort);
+                ObjectOutputStream peerOut = new ObjectOutputStream(peerSocket.getOutputStream());
+                peerOut.flush();
+                ObjectInputStream peerIn = new ObjectInputStream(peerSocket.getInputStream());
+                peerOut.writeObject(Integer.toString(id));
+                if (Integer.parseInt((String)peerIn.readObject()) != peerId) {
+                    System.out.println("Peer " + peerId + " sent unexpected peerId. Handshake failed.");
+                    peerSocket.close();
+                    return;
+                }
+                peerAddress = peerSocket.getInetAddress().toString();
+                peerPort = peerSocket.getPort();
+                System.out.println("Connected to peer " + peerId + " at " + peerAddress + ":" + peerPort);
+                // new Reader(socket).start();
+                // new Writer(socket).start();
+            } catch (IOException e) {
+                System.out.println("Error connecting to peer " + peerId + " at " + peerAddress + ":" + peerPort);
+            } catch (ClassNotFoundException e) {
+                System.out.println("Class not found");
             }
-            peerAddress = peerSocket.getInetAddress().toString();
-            peerPort = peerSocket.getPort();
-            System.out.println("Connected to peer " + peerId + " at " + peerAddress + ":" + peerPort);
-            // new Reader(socket).start();
-            // new Writer(socket).start();
-        } catch (IOException e) {
-            System.out.println("Error connecting to peer " + peerId + " at " + peerAddress + ":" + peerPort);
-        } catch (ClassNotFoundException e) {
-            System.out.println("Class not found");
         }
     }
 
