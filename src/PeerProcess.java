@@ -9,12 +9,23 @@ import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
+// PeerProcess class
 public class PeerProcess
 {
     // Global debug constants
-    public static boolean WRITE_LOGS = false;
-    public static boolean PRINT_LOGS = true;
-    public static boolean PRINT_ERRS = true;
+    public static final boolean WRITE_LOGS = false;
+    public static final boolean PRINT_LOGS = true;
+    public static final boolean PRINT_ERRS = true;
+
+    // Global message type constants
+    public static final int CHOKE = 0;
+    public static final int UNCHOKE = 1;
+    public static final int INTERESTED = 2;
+    public static final int NOT_INTERESTED = 3;
+    public static final int HAVE = 4;
+    public static final int BITFIELD = 5;
+    public static final int REQUEST = 6;
+    public static final int PIECE = 7;
 
     // Common.cfg values
     private static int numberOfPreferredNeighbors;
@@ -250,7 +261,7 @@ public class PeerProcess
             in.read(handshake, 0, 32);
             byte[] handshakeHeader = Arrays.copyOfRange(handshake, 0, 18);
             byte[] peerId = Arrays.copyOfRange(handshake, 28, 32);
-            if (!new String(handshakeHeader, "UTF-8").equals("P2PFILESHARINGPROJ"))
+            if (!new String(handshakeHeader).equals("P2PFILESHARINGPROJ"))
                 return -1;
             return ByteBuffer.wrap(peerId).getInt();
         } catch (IOException e) {
@@ -277,19 +288,51 @@ public class PeerProcess
     }
 
     // Receive and handle a message
-    private static void receiveMessage(ObjectInputStream in)
+    private static void receiveMessage(ObjectInputStream in, int peerId)
     {
+        // Set up variables
+        int length = 0;
+        int type = 0;
+        byte[] payload;
+        // Receive message
         try {
             byte[] messageLength = new byte[4];
             in.read(messageLength, 0, 4);
-            int length = ByteBuffer.wrap(messageLength).getInt();
+            length = ByteBuffer.wrap(messageLength).getInt();
             byte[] messageType = new byte[1];
             in.read(messageType, 0, 1);
-            int type = ByteBuffer.wrap(messageType).getInt();
-            byte[] messagePayload = new byte[length];
-            in.read(messagePayload, 0, length);
+            type = ByteBuffer.wrap(messageType).getInt();
+            payload = new byte[length];
+            in.read(payload, 0, length);
         } catch (IOException e) {
             error("Error receiving message");
+        }
+        // Handle message
+        switch (type) {
+            case CHOKE:
+                System.out.println("CHOKE received from " + peerId + ".");
+                break;
+            case UNCHOKE:
+                System.out.println("UNCHOKE received from " + peerId + ".");
+                break;
+            case INTERESTED:
+                System.out.println("INTERESTED received from " + peerId + ".");
+                break;
+            case NOT_INTERESTED:
+                System.out.println("NOT_INTERESTED received from " + peerId + ".");
+                break;
+            case HAVE:
+                System.out.println("HAVE received from " + peerId + ".");
+                break;
+            case BITFIELD:
+                System.out.println("BITFIELD received from " + peerId + ".");
+                break;
+            case REQUEST:
+                System.out.println("REQUEST received from " + peerId + ".");
+                break;
+            case PIECE:
+                System.out.println("PIECE received from " + peerId + ".");
+                break;
         }
     }
 }
