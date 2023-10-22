@@ -181,12 +181,12 @@ public class PeerProcess
                         // new Reader(socket).start();
                         // new Writer(socket).start();
                     }
+                    break;
                 } catch (IOException e) {
                     error("Could not connect to peer " + peerId + " at " + peerAddress + ":" + peerPort + ". Retrying...");
                 } catch (ClassNotFoundException e) {
                     error("Class not found");
                 }
-                break;
             }
         }
     }
