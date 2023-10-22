@@ -42,6 +42,7 @@ public class PeerProcess
         loadPeerInfo();
     }
 
+    // Set up logger
     private static void prepareLogger()
     {
         if (WRITE_LOGS)
@@ -54,6 +55,7 @@ public class PeerProcess
         }
     }
 
+    // Log a message
     private static void log(String message)
     {
         String time = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss ").format(new java.util.Date());
@@ -69,12 +71,14 @@ public class PeerProcess
             System.out.print(time + message + "\n");
     }
 
+    // Print an error message
     private static void error(String message)
     {
         if (PRINT_ERRS)
             System.out.println(message);
     }
 
+    // Load common config file
     private static void loadCommonConfig()
     {
         String fileName = "Common.cfg";
@@ -104,6 +108,7 @@ public class PeerProcess
         }
     }
 
+    // Load peer info file
     private static void loadPeerInfo()
     {
         String fileName = "PeerInfo.cfg";
@@ -134,6 +139,7 @@ public class PeerProcess
         }
     }
 
+    // Begin handshake with a peer
     private static class Handshaker extends Thread
     {
         private int peerId;
@@ -180,6 +186,7 @@ public class PeerProcess
         }
     }
 
+    // Wait for handshake from peers
     private static class Handshakee extends Thread
     {
         public void run()
@@ -187,7 +194,7 @@ public class PeerProcess
             try {
                 ServerSocket listener = new ServerSocket(port);
                 try {
-                    while(true) {
+                    while (true) {
                         // Setup
                         Socket peerSocket = listener.accept();
                         ObjectOutputStream peerOut = new ObjectOutputStream(peerSocket.getOutputStream());
@@ -221,6 +228,7 @@ public class PeerProcess
         }
     }
 
+    // Construct handshake message
     private static byte[] createHandshakeMessage()
     {
         byte[] protocol = "P2PFILESHARINGPROJ".getBytes();
@@ -233,13 +241,25 @@ public class PeerProcess
         return handshakeMessage;
     }
 
+    // Extract header from handshake message
     private static String getHeaderFromHandshakeMessage(byte[] handshakeMessage)
     {
-        return new String(Arrays.copyOfRange(handshakeMessage, 0, 18));
+        try {
+            return new String(Arrays.copyOfRange(handshakeMessage, 0, 18), "UTF-8");
+        } catch (java.io.UnsupportedEncodingException e) {
+            error("UTF-8 encoding not supported");
+            return null;
+        }
     }
 
+    // Extract peer ID from handshake message
     private static int getPeerIdFromHandshakeMessage(byte[] handshakeMessage)
     {
-        return ByteBuffer.wrap(Arrays.copyOfRange(handshakeMessage, 28, 32)).getInt();
+        try {
+            return ByteBuffer.wrap(Arrays.copyOfRange(handshakeMessage, 28, 32)).getInt();
+        } catch (java.nio.BufferUnderflowException e) {
+            error("Handshake message too short");
+            return -1;
+        }
     }
 }
