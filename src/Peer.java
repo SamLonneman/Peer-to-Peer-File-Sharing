@@ -10,6 +10,7 @@ public class Peer
     private static int peerID;
 	private static String peerIP;
     private static HashMap<Integer, String> neighbors = new HashMap<>();
+	private static HashMap<Integer, String> friends = new HashMap<>();
 
 	public static void main(String args[])
 	{
@@ -54,7 +55,7 @@ public class Peer
 		}
 	}
 
-	void sendMessage(Object msg)
+	void sendMessageToTracker(Object msg)
 	{
 		try {
 			trackerOut.writeObject(msg);
@@ -63,4 +64,77 @@ public class Peer
 			ioException.printStackTrace();
 		}
 	}
+
+	private static class Listener extends Thread
+	{
+		public void run()
+		{
+			try {
+				ServerSocket listener = new ServerSocket(8001);
+				Socket socket = listener.accept();
+				ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
+				System.out.println("Peer " + peerID + " says: " + (String)in.readObject());
+				in.close();
+				socket.close();
+				listener.close();
+			} catch (ClassNotFoundException e) {
+				System.err.println("Class not found");
+			} catch(IOException ioException) {
+				ioException.printStackTrace();
+			}
+		}
+	}
+
+	// private static class Friend extends Thread
+	// {
+	// 	private Socket socket;
+	// 	private ObjectInputStream in;
+	// 	private ObjectOutputStream out;
+	// 	private int friendID;
+	// 	private String friendIP;
+
+	// 	public Friend(Socket socket)
+	// 	{
+	// 		this.socket = socket;
+	// 	}
+
+	// 	public void run()
+	// 	{
+	// 		try {
+	// 			// Setup
+	// 			out = new ObjectOutputStream(socket.getOutputStream());
+	// 			out.flush();
+	// 			in = new ObjectInputStream(socket.getInputStream());
+	// 			// Prepare a new entry for this peer
+	// 			friendID = Integer.parseInt((String)in.readObject());
+	// 			friendIP = socket.getInetAddress().getHostAddress();
+	// 			// Tell the peer their ID
+	// 			sendMessage(Integer.toString(friendID));
+	// 			// Tell the peer how many peers are about to be sent
+	// 			sendMessage(Integer.toString(neighbors.size()));
+	// 			// Send the peer list
+	// 			for (Integer key : neighbors.keySet()) {
+	// 				sendMessage(Integer.toString(key));
+	// 				sendMessage(neighbors.get(key).toString());
+	// 			}
+	// 			// Add the peer to the map
+	// 			neighbors.put(friendID, friendIP);
+	// 			System.out.println("Peer " + friendID + " accepted: " + neighbors);
+	// 		} catch (ClassNotFoundException e) {
+	// 			System.err.println("Class not found");
+	// 		} catch(IOException ioException) {
+	// 			;
+	// 		} finally {
+	// 			try {
+	// 				in.close();
+	// 				out.close();
+	// 				socket.close();
+	// 			} catch(IOException ioException) {
+	// 				;
+	// 			} finally {
+	// 				neighbors.remove(friendID);
+	// 			}
+	// 		}
+	// 	}
+	// }
 }
