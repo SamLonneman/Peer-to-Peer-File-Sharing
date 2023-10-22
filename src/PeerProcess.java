@@ -164,12 +164,12 @@ public class PeerProcess
                     peerOut.flush();
                     ObjectInputStream peerIn = new ObjectInputStream(peerSocket.getInputStream());
                     // Send handshake message
-                    peerOut.writeObject(createHandshakeMessage());
+                    sendHandshake(peerOut);
                     // Receive and verify handshake message
-                    byte[] handshakeMessage = (byte[])peerIn.readObject();
-                    if (!getHeaderFromHandshakeMessage(handshakeMessage).equals("P2PFILESHARINGPROJ") || getPeerIdFromHandshakeMessage(handshakeMessage) != peerId) {
+                    int receivedPeerId = receiveHandshake(peerIn);
+                    if (receivedPeerId != peerId) {
                         // Handshake failed
-                        error("Handshake failed with peer at " + peerAddress + ":" + peerPort + ".");
+                        error("Handshake failed. Expected peer ID " + peerId + " but received " + receivedPeerId + ".");
                         peerSocket.close();
                     } else {
                         // Handshake successful
@@ -182,14 +182,12 @@ public class PeerProcess
                     break;
                 } catch (IOException e) {
                     error("Could not connect to peer " + peerId + " at " + peerAddress + ":" + peerPort + ". Retrying...");
-                } catch (ClassNotFoundException e) {
-                    error("Class not found");
                 }
             }
         }
     }
 
-    // Wait for handshake from peers
+    // Expect handshakes from peers
     private static class Handshakee extends Thread
     {
         public void run()
@@ -204,22 +202,19 @@ public class PeerProcess
                         peerOut.flush();
                         ObjectInputStream peerIn = new ObjectInputStream(peerSocket.getInputStream());
                         // Receive and verify handshake message
-                        byte[] handshakeMessage = (byte[])peerIn.readObject();
-                        if (!getHeaderFromHandshakeMessage(handshakeMessage).equals("P2PFILESHARINGPROJ")) {
-                            error("Handshake failed with peer at " + peerSocket.getInetAddress().toString() + ":" + peerSocket.getPort() + ".");
+                        int peerId = receiveHandshake(peerIn);
+                        sendHandshake(peerOut);
+                        if (peerId == -1) {
+                            // Handshake failed
+                            error("Handshake failed.");
                             peerSocket.close();
-                            continue;
+                        } else {
+                            // Handshake successful
+                            log("Peer " + id + " is connected from Peer " + peerId + ".");
+                            // new Sender(peerId, peerOut).start();
+                            // new Receiver(peerId, peerOut).start();
                         }
-                        // Send handshake message
-                        peerOut.writeObject(createHandshakeMessage());
-                        // Handshake successful
-                        int peerId = getPeerIdFromHandshakeMessage(handshakeMessage);
-                        log("Peer " + id + " is connected from Peer " + peerId + ".");
-                        // new Sender(peerId, peerOut).start();
-                        // new Receiver(peerId, peerOut).start();
                     }
-                } catch (ClassNotFoundException e) {
-                    error("Class not found");
                 } finally {
                     listener.close();
                 }
@@ -229,41 +224,42 @@ public class PeerProcess
         }
     }
 
-    // Construct handshake message
-    private static byte[] createHandshakeMessage()
+    // Send a handshake message
+    private static void sendHandshake(ObjectOutputStream out)
     {
+        byte[] handshake = new byte[32];
         byte[] protocol = "P2PFILESHARINGPROJ".getBytes();
         byte[] zeroBits = new byte[10];
-        byte[] peerId = ByteBuffer.allocate(4).putInt(id).array();
-        byte[] handshakeMessage = new byte[32];
-        System.arraycopy(protocol, 0, handshakeMessage, 0, 18);
-        System.arraycopy(zeroBits, 0, handshakeMessage, 18, 10);
-        System.arraycopy(peerId, 0, handshakeMessage, 28, 4);
-        return handshakeMessage;
-    }
-
-    // Extract header from handshake message
-    private static String getHeaderFromHandshakeMessage(byte[] handshakeMessage)
-    {
+        byte[] idBytes = ByteBuffer.allocate(4).putInt(id).array();
+        System.arraycopy(protocol, 0, handshake, 0, 18);
+        System.arraycopy(zeroBits, 0, handshake, 18, 10);
+        System.arraycopy(idBytes, 0, handshake, 28, 4);
         try {
-            return new String(Arrays.copyOfRange(handshakeMessage, 0, 18), "UTF-8");
-        } catch (java.io.UnsupportedEncodingException e) {
-            error("UTF-8 encoding not supported");
-            return null;
+            out.write(handshake);
+            out.flush();
+        } catch (IOException e) {
+            error("Error sending handshake");
         }
     }
 
-    // Extract peer ID from handshake message
-    private static int getPeerIdFromHandshakeMessage(byte[] handshakeMessage)
+    // Receive a handshake message, returns peer ID or -1 if failed
+    private static int receiveHandshake(ObjectInputStream in)
     {
         try {
-            return ByteBuffer.wrap(Arrays.copyOfRange(handshakeMessage, 28, 32)).getInt();
-        } catch (java.nio.BufferUnderflowException e) {
-            error("Handshake message too short");
+            byte[] handshake = new byte[32];
+            in.read(handshake, 0, 32);
+            byte[] handshakeHeader = Arrays.copyOfRange(handshake, 0, 18);
+            byte[] peerId = Arrays.copyOfRange(handshake, 28, 32);
+            if (!new String(handshakeHeader, "UTF-8").equals("P2PFILESHARINGPROJ"))
+                return -1;
+            return ByteBuffer.wrap(peerId).getInt();
+        } catch (IOException e) {
+            error("Error receiving handshake");
             return -1;
         }
     }
 
+    // Send a message
     private static void sendMessage(ObjectOutputStream out, int type, byte[] payload)
     {
         byte[] message = new byte[5 + payload.length];
@@ -280,6 +276,7 @@ public class PeerProcess
         }
     }
 
+    // Receive and handle a message
     private static void receiveMessage(ObjectInputStream in)
     {
         try {
