@@ -7,8 +7,13 @@ import java.io.ObjectOutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -52,10 +57,11 @@ public class PeerProcess
     // Thread-Safe Data Structures
     private static ConcurrentHashMap<Integer, Receiver> receivers = new ConcurrentHashMap<Integer, Receiver>();
     private static ConcurrentHashMap<Integer, BitSet> peerBitFields = new ConcurrentHashMap<Integer, BitSet>();
+    private static ConcurrentHashMap<Integer, Integer> numPiecesSharedRecently = new ConcurrentHashMap<Integer, Integer>();
     private static Set<Integer> interestedPeers = ConcurrentHashMap.newKeySet();
     private static Set<Integer> preferredPeers = ConcurrentHashMap.newKeySet();
     private static Set<Integer> unchokedPeers = ConcurrentHashMap.newKeySet();
-    private static AtomicInteger optimisticallyUnchokedPeer = new AtomicInteger();
+    private static AtomicInteger optimisticallyUnchokedPeer = new AtomicInteger(-1);
 
     // Attributes
     private static BitSet bitfield;
@@ -66,7 +72,9 @@ public class PeerProcess
         id = Integer.parseInt(args[0]);
         prepareLogger();
         loadCommonConfig();
-        loadPeerInfo();
+        loadPeerInfoAndStartConnecting();
+        new PreferredNeighborsManager().start();
+        new OptimisticallyUnchokedNeighborManager().start();
     }
 
     // Set up logger
@@ -137,7 +145,7 @@ public class PeerProcess
     }
 
     // Load peer info file
-    private static void loadPeerInfo()
+    private static void loadPeerInfoAndStartConnecting()
     {
         String fileName = "PeerInfo.cfg";
         String line = null;
@@ -215,7 +223,7 @@ public class PeerProcess
                         peerAddress = peerSocket.getInetAddress().toString();
                         peerPort = peerSocket.getPort();
                         log("Peer " + id + " makes a connection to Peer " + peerId + ".");
-                        // Start sender and receiver threads
+                        // Start receiver thread
                         receivers.put(peerId, new Receiver(peerId, peerSocket, peerIn, peerOut));
                         receivers.get(peerId).start();
                     }
@@ -251,7 +259,7 @@ public class PeerProcess
                         } else {
                             // Handshake successful
                             log("Peer " + id + " is connected from Peer " + peerId + ".");
-                            // Start sender and receiver threads
+                            // Start receiver threads
                             receivers.put(peerId, new Receiver(peerId, peerSocket, peerIn, peerOut));
                             receivers.get(peerId).start();
                         }
@@ -426,10 +434,113 @@ public class PeerProcess
 
         public void run()
         {
+            // Add peer to numPiecesSharedRecently
+            numPiecesSharedRecently.put(peerId, 0);
+            // Send bitfield message
             if (hasFile)
                 sendMessage(out, BITFIELD, bitfield.toByteArray());
+            // Receive messages
             while (true)
                 receiveMessage(in, peerId);
+        }
+    }
+
+    // Thread for managing preferred neighbors
+    public static class PreferredNeighborsManager extends Thread
+    {
+        public void run()
+        {
+            while (true) {
+                // Replace the current preferred neighbors with the k best neighbors
+                updatePreferredNeighbors();
+                // Send choke message to all unchoked neighbors not in preferred neighbors
+                for (Iterator<Integer> iter = unchokedPeers.iterator(); iter.hasNext();) {
+                    int peerId = iter.next();
+                    if (!preferredPeers.contains(peerId)) {
+                        sendMessage(receivers.get(peerId).out, CHOKE, null);
+                        iter.remove();
+                    }
+                }
+                // Send unchoke message to all preferred neighbors not already unchoked
+                for (int peerId : preferredPeers) {
+                    if (!unchokedPeers.contains(peerId)) {
+                        sendMessage(receivers.get(peerId).out, UNCHOKE, null);
+                        unchokedPeers.add(peerId);
+                    }
+                }
+                // Wait for unchoking interval
+                try {
+                    Thread.sleep(unchokingInterval * 1000);
+                } catch (InterruptedException e) {
+                    error("Preferred neighbors manager thread interrupted.");
+                }
+            }
+        }
+    }
+
+    // Get the k best neighbors by number of pieces shared recently
+    private static void updatePreferredNeighbors()
+    {
+        // Get the k best neighbors, sorted first by number of pieces shared recently, then randomly
+        List<Map.Entry<Integer, Integer>> bestNeighbors = new ArrayList<Map.Entry<Integer, Integer>>();
+        List<Map.Entry<Integer, Integer>> numPiecesSharedRecentlyList = new ArrayList<Map.Entry<Integer, Integer>>(numPiecesSharedRecently.entrySet());
+        Collections.shuffle(numPiecesSharedRecentlyList);
+        for (Map.Entry<Integer, Integer> entry : numPiecesSharedRecentlyList) {
+            if (!interestedPeers.contains(entry.getKey())) continue;
+            if (bestNeighbors.size() < numberOfPreferredNeighbors)
+                bestNeighbors.add(entry);
+            else {
+                int minIndex = 0;
+                for (int i = 1; i < bestNeighbors.size(); i++)
+                    if (bestNeighbors.get(i).getValue() < bestNeighbors.get(minIndex).getValue())
+                        minIndex = i;
+                if (entry.getValue() > bestNeighbors.get(minIndex).getValue())
+                    bestNeighbors.set(minIndex, entry);
+            }
+        }
+        // Replace preferred neighbors with the (up to) k best neighbors
+        preferredPeers.clear();
+        for (Map.Entry<Integer, Integer> entry : bestNeighbors)
+            preferredPeers.add(entry.getKey());
+        // Clear the number of pieces shared recently
+        for (int peerId : numPiecesSharedRecently.keySet())
+            numPiecesSharedRecently.put(peerId, 0);
+    }
+
+    // Thread for managing the optimistically unchoked neighbor
+    public static class OptimisticallyUnchokedNeighborManager extends Thread
+    {
+        public void run()
+        {
+            while (true) {
+                if (!interestedPeers.isEmpty()) {
+                    // Store previous optimistically unchoked peer
+                    int previousOptimisticallyUnchokedPeer = optimisticallyUnchokedPeer.get();
+                    // Select a random peer from interested peers
+                    ArrayList<Integer> interestedPeersList = new ArrayList<Integer>(interestedPeers);
+                    Collections.shuffle(interestedPeersList);
+                    if (interestedPeersList.size() > 1 || (interestedPeersList.size() == 1 && previousOptimisticallyUnchokedPeer != interestedPeersList.get(0)))
+                    {
+                        int randomInterestedPeer = interestedPeersList.get(0);
+                        while (randomInterestedPeer == optimisticallyUnchokedPeer.get()) {
+                            randomInterestedPeer = interestedPeersList.get((int)(Math.random() * interestedPeers.size()));
+                        }
+                        optimisticallyUnchokedPeer.set(randomInterestedPeer);
+                    }
+                    // Send unchoke message to peer
+                    sendMessage(receivers.get(optimisticallyUnchokedPeer.get()).out, UNCHOKE, null);
+                    // Send choke message to previous optimistically unchoked peer
+                    if (previousOptimisticallyUnchokedPeer != -1)
+                        sendMessage(receivers.get(previousOptimisticallyUnchokedPeer).out, CHOKE, null);
+                }
+                System.out.println("Optimistically unchoked neighbor is " + optimisticallyUnchokedPeer.get() + ".");
+                // Wait for optimistic unchoking interval
+                try {
+                    Thread.sleep(optimisticUnchokingInterval * 1000);
+                } catch (InterruptedException e) {
+                    error("Optimistically unchoked neighbor manager thread interrupted.");
+                }
+            }
         }
     }
 }
