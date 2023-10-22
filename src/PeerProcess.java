@@ -355,6 +355,7 @@ public class PeerProcess
                 break;
             case UNCHOKE:
                 System.out.println("UNCHOKE received from " + peerId + ".");
+                handleUnchokeMessage(peerId);
                 break;
             case INTERESTED:
                 System.out.println("INTERESTED received from " + peerId + ".");
@@ -374,10 +375,32 @@ public class PeerProcess
                 break;
             case REQUEST:
                 System.out.println("REQUEST received from " + peerId + ".");
+                handleRequestMessage(peerId, payload);
                 break;
             case PIECE:
                 System.out.println("PIECE received from " + peerId + ".");
+                handlePieceMessage(peerId, payload);
                 break;
+        }
+    }
+
+    // Handle an UNCHOKE message
+    private static void handleUnchokeMessage(int peerId)
+    {
+        // Get list of interesting pieces
+        ArrayList<Integer> piecesToRequest = new ArrayList<Integer>();
+        for (int i = 0; i < numPieces; i++)
+            if (!bitfield.get(i) && peerBitFields.get(peerId).get(i))
+                piecesToRequest.add(i);
+        // If there are interesting pieces, REQUEST a random one
+        if (piecesToRequest.size() > 0) {
+            Collections.shuffle(piecesToRequest);
+            int pieceToRequest = piecesToRequest.get((int)(Math.random() * piecesToRequest.size()));
+            byte[] payload = ByteBuffer.allocate(4).putInt(pieceToRequest).array();
+            sendMessage(receivers.get(peerId).out, REQUEST, payload);
+        } else {
+            // There are no interesting pieces, so send a NOTINTERESTED message
+            sendMessage(receivers.get(peerId).out, NOT_INTERESTED, null);
         }
     }
 
@@ -414,6 +437,30 @@ public class PeerProcess
             sendMessage(receivers.get(peerId).out, INTERESTED, null);
         else
             sendMessage(receivers.get(peerId).out, NOT_INTERESTED, null);
+    }
+
+    // Handle a REQUEST message
+    private static void handleRequestMessage(int peerId, byte[] payload)
+    {
+        // Prepare to read piece from file
+        int pieceIndex = ByteBuffer.wrap(payload).getInt();
+        char[] pieceChars = new char[pieceSize];
+        byte[] pieceMessage = null;
+        try {
+            // Read piece from file
+            FileReader fileReader = new FileReader(id + "/" + fileName);
+            BufferedReader bufferedReader = new BufferedReader(fileReader);
+            bufferedReader.skip(pieceIndex * pieceSize);
+            bufferedReader.read(pieceChars, 0, pieceSize);
+            bufferedReader.close();
+        } catch (IOException e) {
+            error("Error reading file '" + fileName + "'");
+        }
+        // Construct and send PIECE message
+        pieceMessage = new byte[pieceChars.length + 4];
+        System.arraycopy(ByteBuffer.allocate(4).putInt(pieceIndex).array(), 0, pieceMessage, 0, 4);
+        System.arraycopy(new String(pieceChars).getBytes(), 0, pieceMessage, 4, pieceChars.length);
+        sendMessage(receivers.get(peerId).out, PIECE, pieceMessage);
     }
 
     // Thread for receiving messages from a specific peer
