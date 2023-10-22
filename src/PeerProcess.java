@@ -123,7 +123,7 @@ public class PeerProcess
                 int peerPort = Integer.parseInt(tokens[2]);
                 boolean peerHasFile = Integer.parseInt(tokens[3]) == 1;
                 if (peerId != id) {
-                    new Handshaker(peerId, peerAddress, peerPort, peerHasFile).start();
+                    new Handshaker(peerId, peerAddress, peerPort).start();
                 } else {
                     address = peerAddress;
                     port = peerPort;
@@ -145,14 +145,12 @@ public class PeerProcess
         private int peerId;
         private String peerAddress;
         private int peerPort;
-        private boolean peerHasFile;
 
-        public Handshaker(int peerId, String peerAddress, int peerPort, boolean peerHasFile)
+        public Handshaker(int peerId, String peerAddress, int peerPort)
         {
             this.peerId = peerId;
             this.peerAddress = peerAddress;
             this.peerPort = peerPort;
-            this.peerHasFile = peerHasFile;
         }
 
         public void run()
@@ -178,8 +176,8 @@ public class PeerProcess
                         peerAddress = peerSocket.getInetAddress().toString();
                         peerPort = peerSocket.getPort();
                         log("Peer " + id + " makes a connection to Peer " + peerId + ".");
-                        // new Reader(socket).start();
-                        // new Writer(socket).start();
+                        // new Sender(peerId, peerOut).start();
+                        // new Receiver(peerId, peerIn).start();
                     }
                     break;
                 } catch (IOException e) {
@@ -216,11 +214,9 @@ public class PeerProcess
                         peerOut.writeObject(createHandshakeMessage());
                         // Handshake successful
                         int peerId = getPeerIdFromHandshakeMessage(handshakeMessage);
-                        String peerAddress = peerSocket.getInetAddress().toString();
-                        int peerPort = peerSocket.getPort();
                         log("Peer " + id + " is connected from Peer " + peerId + ".");
-                        // new Reader(socket).start();
-                        // new Writer(socket).start();
+                        // new Sender(peerId, peerOut).start();
+                        // new Receiver(peerId, peerOut).start();
                     }
                 } catch (ClassNotFoundException e) {
                     error("Class not found");
@@ -265,6 +261,38 @@ public class PeerProcess
         } catch (java.nio.BufferUnderflowException e) {
             error("Handshake message too short");
             return -1;
+        }
+    }
+
+    private static void sendMessage(ObjectOutputStream out, int type, byte[] payload)
+    {
+        byte[] message = new byte[5 + payload.length];
+        byte[] messageLength = ByteBuffer.allocate(4).putInt(payload.length).array();
+        byte[] messageType = ByteBuffer.allocate(1).put((byte)type).array();
+        System.arraycopy(messageLength, 0, message, 0, 4);
+        System.arraycopy(messageType, 0, message, 4, 1);
+        System.arraycopy(payload, 0, message, 5, payload.length);
+        try {
+            out.write(message);
+            out.flush();
+        } catch (IOException e) {
+            error("Error sending message");
+        }
+    }
+
+    private static void receiveMessage(ObjectInputStream in)
+    {
+        try {
+            byte[] messageLength = new byte[4];
+            in.read(messageLength, 0, 4);
+            int length = ByteBuffer.wrap(messageLength).getInt();
+            byte[] messageType = new byte[1];
+            in.read(messageType, 0, 1);
+            int type = ByteBuffer.wrap(messageType).getInt();
+            byte[] messagePayload = new byte[length];
+            in.read(messagePayload, 0, length);
+        } catch (IOException e) {
+            error("Error receiving message");
         }
     }
 }
