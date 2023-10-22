@@ -38,6 +38,7 @@ public class PeerProcess
     private static String fileName;
     private static int fileSize;
     private static int pieceSize;
+    private static int numPieces;
 
     // PeerInfo.cfg values
     private static int id;
@@ -49,7 +50,6 @@ public class PeerProcess
     private static FileWriter logWriter;
 
     // Thread-Safe Data Structures
-    private static ConcurrentHashMap<Integer, Sender> senders = new ConcurrentHashMap<Integer, Sender>();
     private static ConcurrentHashMap<Integer, Receiver> receivers = new ConcurrentHashMap<Integer, Receiver>();
     private static ConcurrentHashMap<Integer, BitSet> peerBitFields = new ConcurrentHashMap<Integer, BitSet>();
     private static Set<Integer> interestedPeers = ConcurrentHashMap.newKeySet();
@@ -59,7 +59,6 @@ public class PeerProcess
 
     // Attributes
     private static BitSet bitfield;
-    private static int numberOfPieces;
 
     // Entry point
     public static void main(String[] args)
@@ -129,6 +128,7 @@ public class PeerProcess
                 else if (tokens[0].equals("PieceSize"))
                     pieceSize = Integer.parseInt(tokens[1]);
             }
+            numPieces = (int)Math.ceil((double)fileSize / pieceSize);
             bufferedReader.close();
         }
         catch (IOException e) {
@@ -171,11 +171,11 @@ public class PeerProcess
     // Initialize bitfield based on whether the peer has the file
     private static void initializeBitfield()
     {
-        numberOfPieces = (int)Math.ceil((double)fileSize / pieceSize);
-        bitfield = new BitSet(numberOfPieces);
+        bitfield = new BitSet(numPieces);
         if (hasFile)
-            for (int i = 0; i < numberOfPieces; i++)
-                bitfield.set(i);
+            bitfield.set(0, numPieces);
+        else
+            bitfield.clear();
     }
 
     // Begin handshake with a peer
@@ -216,9 +216,7 @@ public class PeerProcess
                         peerPort = peerSocket.getPort();
                         log("Peer " + id + " makes a connection to Peer " + peerId + ".");
                         // Start sender and receiver threads
-                        senders.put(peerId, new Sender(peerId, peerIn, peerOut));
-                        receivers.put(peerId, new Receiver(peerId, peerIn, peerOut));
-                        senders.get(peerId).start();
+                        receivers.put(peerId, new Receiver(peerId, peerSocket, peerIn, peerOut));
                         receivers.get(peerId).start();
                     }
                     break;
@@ -254,9 +252,7 @@ public class PeerProcess
                             // Handshake successful
                             log("Peer " + id + " is connected from Peer " + peerId + ".");
                             // Start sender and receiver threads
-                            senders.put(peerId, new Sender(peerId, peerIn, peerOut));
-                            receivers.put(peerId, new Receiver(peerId, peerIn, peerOut));
-                            senders.get(peerId).start();
+                            receivers.put(peerId, new Receiver(peerId, peerSocket, peerIn, peerOut));
                             receivers.get(peerId).start();
                         }
                     }
@@ -395,9 +391,9 @@ public class PeerProcess
         int pieceIndex = ByteBuffer.wrap(payload).getInt();
         peerBitFields.get(peerId).set(pieceIndex);
         if (!bitfield.get(pieceIndex))
-            sendMessage(senders.get(peerId).out, INTERESTED, null);
+            sendMessage(receivers.get(peerId).out, INTERESTED, null);
         else
-            sendMessage(senders.get(peerId).out, NOT_INTERESTED, null);
+            sendMessage(receivers.get(peerId).out, NOT_INTERESTED, null);
     }
 
     // Handle a BITFIELD message
@@ -407,55 +403,33 @@ public class PeerProcess
         peerBitFields.put(peerId, peerBitField);
         peerBitField.andNot(bitfield);
         if (!peerBitField.isEmpty())
-            sendMessage(senders.get(peerId).out, INTERESTED, null);
+            sendMessage(receivers.get(peerId).out, INTERESTED, null);
         else
-            sendMessage(senders.get(peerId).out, NOT_INTERESTED, null);
-    }
-
-    // Thread for sending messages to a specific peer
-    public static class Sender extends Thread
-    {
-        private int peerId;
-        private ObjectInputStream in;
-        private ObjectOutputStream out;
-
-        public Sender(int peerId, ObjectInputStream in, ObjectOutputStream out)
-        {
-            this.peerId = peerId;
-            this.in = in;
-            this.out = out;
-        }
-
-        public void run()
-        {
-            // if (hasFile) {
-            //     sendMessage(out, BITFIELD, bitfield.toByteArray());
-            // }
-        }
+            sendMessage(receivers.get(peerId).out, NOT_INTERESTED, null);
     }
 
     // Thread for receiving messages from a specific peer
     public static class Receiver extends Thread
     {
         private int peerId;
+        private Socket peerSocket;
         private ObjectInputStream in;
         private ObjectOutputStream out;
 
-        public Receiver(int peerId, ObjectInputStream in, ObjectOutputStream out)
+        public Receiver(int peerId, Socket peerSocket, ObjectInputStream in, ObjectOutputStream out)
         {
             this.peerId = peerId;
+            this.peerSocket = peerSocket;
             this.in = in;
             this.out = out;
         }
 
         public void run()
         {
-            if (hasFile) {
+            if (hasFile)
                 sendMessage(out, BITFIELD, bitfield.toByteArray());
-            }
-            while (true) {
+            while (true)
                 receiveMessage(in, peerId);
-            }
         }
     }
 }
