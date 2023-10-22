@@ -8,6 +8,10 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.BitSet;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 // PeerProcess class
 public class PeerProcess
@@ -43,6 +47,19 @@ public class PeerProcess
 
     // Singletons
     private static FileWriter logWriter;
+
+    // Thread-Safe Data Structures
+    private static ConcurrentHashMap<Integer, Sender> senders = new ConcurrentHashMap<Integer, Sender>();
+    private static ConcurrentHashMap<Integer, Receiver> receivers = new ConcurrentHashMap<Integer, Receiver>();
+    private static ConcurrentHashMap<Integer, BitSet> peerBitFields = new ConcurrentHashMap<Integer, BitSet>();
+    private static Set<Integer> interestedPeers = ConcurrentHashMap.newKeySet();
+    private static Set<Integer> preferredPeers = ConcurrentHashMap.newKeySet();
+    private static Set<Integer> unchokedPeers = ConcurrentHashMap.newKeySet();
+    private static AtomicInteger optimisticallyUnchokedPeer = new AtomicInteger();
+
+    // Attributes
+    private static BitSet bitfield;
+    private static int numberOfPieces;
 
     // Entry point
     public static void main(String[] args)
@@ -139,6 +156,7 @@ public class PeerProcess
                     address = peerAddress;
                     port = peerPort;
                     hasFile = peerHasFile;
+                    initializeBitfield();
                     new Handshakee().start();
                     break;
                 }
@@ -148,6 +166,16 @@ public class PeerProcess
         catch (IOException e) {
             error("Error reading file '" + fileName + "'");
         }
+    }
+
+    // Initialize bitfield based on whether the peer has the file
+    private static void initializeBitfield()
+    {
+        numberOfPieces = (int)Math.ceil((double)fileSize / pieceSize);
+        bitfield = new BitSet(numberOfPieces);
+        if (hasFile)
+            for (int i = 0; i < numberOfPieces; i++)
+                bitfield.set(i);
     }
 
     // Begin handshake with a peer
@@ -187,8 +215,11 @@ public class PeerProcess
                         peerAddress = peerSocket.getInetAddress().toString();
                         peerPort = peerSocket.getPort();
                         log("Peer " + id + " makes a connection to Peer " + peerId + ".");
-                        // new Sender(peerId, peerOut).start();
-                        // new Receiver(peerId, peerIn).start();
+                        // Start sender and receiver threads
+                        senders.put(peerId, new Sender(peerId, peerIn, peerOut));
+                        receivers.put(peerId, new Receiver(peerId, peerIn, peerOut));
+                        senders.get(peerId).start();
+                        receivers.get(peerId).start();
                     }
                     break;
                 } catch (IOException e) {
@@ -222,8 +253,11 @@ public class PeerProcess
                         } else {
                             // Handshake successful
                             log("Peer " + id + " is connected from Peer " + peerId + ".");
-                            // new Sender(peerId, peerOut).start();
-                            // new Receiver(peerId, peerOut).start();
+                            // Start sender and receiver threads
+                            senders.put(peerId, new Sender(peerId, peerIn, peerOut));
+                            receivers.put(peerId, new Receiver(peerId, peerIn, peerOut));
+                            senders.get(peerId).start();
+                            receivers.get(peerId).start();
                         }
                     }
                 } finally {
@@ -273,6 +307,8 @@ public class PeerProcess
     // Send a message
     private static void sendMessage(ObjectOutputStream out, int type, byte[] payload)
     {
+        if (payload == null)
+            payload = new byte[0];
         byte[] message = new byte[5 + payload.length];
         byte[] messageLength = ByteBuffer.allocate(4).putInt(payload.length).array();
         byte[] messageType = ByteBuffer.allocate(1).put((byte)type).array();
@@ -293,19 +329,20 @@ public class PeerProcess
         // Set up variables
         int length = 0;
         int type = 0;
-        byte[] payload;
+        byte[] payload = null;
         // Receive message
         try {
             byte[] messageLength = new byte[4];
             in.read(messageLength, 0, 4);
             length = ByteBuffer.wrap(messageLength).getInt();
-            byte[] messageType = new byte[1];
-            in.read(messageType, 0, 1);
+            byte[] messageType = new byte[4];
+            in.read(messageType, 3, 1);
             type = ByteBuffer.wrap(messageType).getInt();
             payload = new byte[length];
             in.read(payload, 0, length);
         } catch (IOException e) {
             error("Error receiving message");
+            return;
         }
         // Handle message
         switch (type) {
@@ -317,15 +354,19 @@ public class PeerProcess
                 break;
             case INTERESTED:
                 System.out.println("INTERESTED received from " + peerId + ".");
+                handleInterestedMessage(peerId);
                 break;
             case NOT_INTERESTED:
                 System.out.println("NOT_INTERESTED received from " + peerId + ".");
+                handleNotInterestedMessage(peerId);
                 break;
             case HAVE:
                 System.out.println("HAVE received from " + peerId + ".");
+                handleHaveMessage(peerId, payload);
                 break;
             case BITFIELD:
                 System.out.println("BITFIELD received from " + peerId + ".");
+                handleBitfieldMessage(peerId, payload);
                 break;
             case REQUEST:
                 System.out.println("REQUEST received from " + peerId + ".");
@@ -333,6 +374,88 @@ public class PeerProcess
             case PIECE:
                 System.out.println("PIECE received from " + peerId + ".");
                 break;
+        }
+    }
+
+    // Handle an INTERESTED message
+    private static void handleInterestedMessage(int peerId)
+    {
+        interestedPeers.add(peerId);
+    }
+
+    // Handle a NOTINTERESTED message
+    private static void handleNotInterestedMessage(int peerId)
+    {
+        interestedPeers.remove(peerId);
+    }
+
+    // Handle a HAVE message
+    private static void handleHaveMessage(int peerId, byte[] payload)
+    {
+        int pieceIndex = ByteBuffer.wrap(payload).getInt();
+        peerBitFields.get(peerId).set(pieceIndex);
+        if (!bitfield.get(pieceIndex))
+            sendMessage(senders.get(peerId).out, INTERESTED, null);
+        else
+            sendMessage(senders.get(peerId).out, NOT_INTERESTED, null);
+    }
+
+    // Handle a BITFIELD message
+    private static void handleBitfieldMessage(int peerId, byte[] payload)
+    {
+        BitSet peerBitField = BitSet.valueOf(payload);
+        peerBitFields.put(peerId, peerBitField);
+        peerBitField.andNot(bitfield);
+        if (!peerBitField.isEmpty())
+            sendMessage(senders.get(peerId).out, INTERESTED, null);
+        else
+            sendMessage(senders.get(peerId).out, NOT_INTERESTED, null);
+    }
+
+    // Thread for sending messages to a specific peer
+    public static class Sender extends Thread
+    {
+        private int peerId;
+        private ObjectInputStream in;
+        private ObjectOutputStream out;
+
+        public Sender(int peerId, ObjectInputStream in, ObjectOutputStream out)
+        {
+            this.peerId = peerId;
+            this.in = in;
+            this.out = out;
+        }
+
+        public void run()
+        {
+            // if (hasFile) {
+            //     sendMessage(out, BITFIELD, bitfield.toByteArray());
+            // }
+        }
+    }
+
+    // Thread for receiving messages from a specific peer
+    public static class Receiver extends Thread
+    {
+        private int peerId;
+        private ObjectInputStream in;
+        private ObjectOutputStream out;
+
+        public Receiver(int peerId, ObjectInputStream in, ObjectOutputStream out)
+        {
+            this.peerId = peerId;
+            this.in = in;
+            this.out = out;
+        }
+
+        public void run()
+        {
+            if (hasFile) {
+                sendMessage(out, BITFIELD, bitfield.toByteArray());
+            }
+            while (true) {
+                receiveMessage(in, peerId);
+            }
         }
     }
 }
