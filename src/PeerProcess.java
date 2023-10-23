@@ -116,10 +116,10 @@ public class PeerProcess
     // Load common config file
     private static void loadCommonConfig()
     {
-        String fileName = "Common.cfg";
+        String commonConfigFileName = "Common.cfg";
         String line = null;
         try {
-            FileReader fileReader = new FileReader(fileName);
+            FileReader fileReader = new FileReader(commonConfigFileName);
             BufferedReader bufferedReader = new BufferedReader(fileReader);
             while ((line = bufferedReader.readLine()) != null) {
                 String[] tokens = line.split(" ");
@@ -130,7 +130,7 @@ public class PeerProcess
                 else if (tokens[0].equals("OptimisticUnchokingInterval"))
                     optimisticUnchokingInterval = Integer.parseInt(tokens[1]);
                 else if (tokens[0].equals("FileName"))
-                    fileName = tokens[1];
+                    fileName = "peer_" + id + "/" + tokens[1];
                 else if (tokens[0].equals("FileSize"))
                     fileSize = Integer.parseInt(tokens[1]);
                 else if (tokens[0].equals("PieceSize"))
@@ -140,17 +140,17 @@ public class PeerProcess
             bufferedReader.close();
         }
         catch (IOException e) {
-            error("Error reading file '" + fileName + "'");
+            error("Error reading file '" + commonConfigFileName + "'");
         }
     }
 
     // Load peer info file
     private static void loadPeerInfoAndStartConnecting()
     {
-        String fileName = "PeerInfo.cfg";
+        String peerInfoConfigFileName = "PeerInfo.cfg";
         String line = null;
         try {
-            FileReader fileReader = new FileReader(fileName);
+            FileReader fileReader = new FileReader(peerInfoConfigFileName);
             BufferedReader bufferedReader = new BufferedReader(fileReader);
             while ((line = bufferedReader.readLine()) != null) {
                 String[] tokens = line.split(" ");
@@ -172,7 +172,7 @@ public class PeerProcess
             bufferedReader.close();
         }
         catch (IOException e) {
-            error("Error reading file '" + fileName + "'");
+            error("Error reading file '" + peerInfoConfigFileName + "'");
         }
     }
 
@@ -351,46 +351,56 @@ public class PeerProcess
         // Handle message
         switch (type) {
             case CHOKE:
-                System.out.println("CHOKE received from " + peerId + ".");
+                handleChokeMessage(peerId);
                 break;
             case UNCHOKE:
-                System.out.println("UNCHOKE received from " + peerId + ".");
+                handleUnchokeMessage(peerId);
                 break;
             case INTERESTED:
-                System.out.println("INTERESTED received from " + peerId + ".");
                 handleInterestedMessage(peerId);
                 break;
             case NOT_INTERESTED:
-                System.out.println("NOT_INTERESTED received from " + peerId + ".");
                 handleNotInterestedMessage(peerId);
                 break;
             case HAVE:
-                System.out.println("HAVE received from " + peerId + ".");
                 handleHaveMessage(peerId, payload);
                 break;
             case BITFIELD:
-                System.out.println("BITFIELD received from " + peerId + ".");
                 handleBitfieldMessage(peerId, payload);
                 break;
             case REQUEST:
-                System.out.println("REQUEST received from " + peerId + ".");
+                handleRequestMessage(peerId, payload);
                 break;
             case PIECE:
-                System.out.println("PIECE received from " + peerId + ".");
+                handlePieceMessage(peerId, payload);
                 break;
         }
+    }
+
+    // Handle a CHOKE message
+    private static void handleChokeMessage(int peerId)
+    {
+        log("Peer " + id + " is choked by " + peerId + ".");
+    }
+
+    // Handle an UNCHOKE message
+    private static void handleUnchokeMessage(int peerId)
+    {
+        log("Peer " + id + " is unchoked by " + peerId + ".");
     }
 
     // Handle an INTERESTED message
     private static void handleInterestedMessage(int peerId)
     {
         interestedPeers.add(peerId);
+        log("Peer " + id + " received the 'interested' message from " + peerId + ".");
     }
 
     // Handle a NOTINTERESTED message
     private static void handleNotInterestedMessage(int peerId)
     {
         interestedPeers.remove(peerId);
+        log("Peer " + id + " received the 'not interested' message from " + peerId + ".");
     }
 
     // Handle a HAVE message
@@ -402,6 +412,7 @@ public class PeerProcess
             sendMessage(receivers.get(peerId).out, INTERESTED, null);
         else
             sendMessage(receivers.get(peerId).out, NOT_INTERESTED, null);
+        log("Peer " + id + " received the 'have' message from " + peerId + " for the piece " + pieceIndex + ".");
     }
 
     // Handle a BITFIELD message
@@ -414,6 +425,18 @@ public class PeerProcess
             sendMessage(receivers.get(peerId).out, INTERESTED, null);
         else
             sendMessage(receivers.get(peerId).out, NOT_INTERESTED, null);
+    }
+
+    // Handle a REQUEST message
+    public static void handleRequestMessage(int peerId, byte[] payload)
+    {
+        ; // TODO
+    }
+
+    // Handle a PIECE message
+    public static void handlePieceMessage(int peerId, byte[] payload)
+    {
+        ; // TODO
     }
 
     // Thread for receiving messages from a specific peer
@@ -451,7 +474,7 @@ public class PeerProcess
         public void run()
         {
             while (true) {
-                // Replace the current preferred neighbors with the k best neighbors
+                // Replace the current preferred neighbors with the k best interested neighbors
                 updatePreferredNeighbors();
                 // Send choke message to all unchoked neighbors not in preferred neighbors
                 for (Iterator<Integer> iter = unchokedPeers.iterator(); iter.hasNext();) {
@@ -468,6 +491,7 @@ public class PeerProcess
                         unchokedPeers.add(peerId);
                     }
                 }
+                log("Peer " + id + " has the preferred neighbors " + preferredPeers.toString() + ".");
                 // Wait for unchoking interval
                 try {
                     Thread.sleep(unchokingInterval * 1000);
@@ -533,7 +557,7 @@ public class PeerProcess
                     if (previousOptimisticallyUnchokedPeer != -1)
                         sendMessage(receivers.get(previousOptimisticallyUnchokedPeer).out, CHOKE, null);
                 }
-                System.out.println("Optimistically unchoked neighbor is " + optimisticallyUnchokedPeer.get() + ".");
+                log("Peer " + id + " has the optimistically unchoked neighbor " + optimisticallyUnchokedPeer.get() + ".");
                 // Wait for optimistic unchoking interval
                 try {
                     Thread.sleep(optimisticUnchokingInterval * 1000);
