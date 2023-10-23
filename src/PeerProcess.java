@@ -116,10 +116,10 @@ public class PeerProcess
     // Load common config file
     private static void loadCommonConfig()
     {
-        String fileName = "Common.cfg";
+        String commonConfigFileName = "Common.cfg";
         String line = null;
         try {
-            FileReader fileReader = new FileReader(fileName);
+            FileReader fileReader = new FileReader(commonConfigFileName);
             BufferedReader bufferedReader = new BufferedReader(fileReader);
             while ((line = bufferedReader.readLine()) != null) {
                 String[] tokens = line.split(" ");
@@ -130,7 +130,7 @@ public class PeerProcess
                 else if (tokens[0].equals("OptimisticUnchokingInterval"))
                     optimisticUnchokingInterval = Integer.parseInt(tokens[1]);
                 else if (tokens[0].equals("FileName"))
-                    fileName = tokens[1];
+                    fileName = "peer_" + id + "/" + tokens[1];
                 else if (tokens[0].equals("FileSize"))
                     fileSize = Integer.parseInt(tokens[1]);
                 else if (tokens[0].equals("PieceSize"))
@@ -140,17 +140,17 @@ public class PeerProcess
             bufferedReader.close();
         }
         catch (IOException e) {
-            error("Error reading file '" + fileName + "'");
+            error("Error reading file '" + commonConfigFileName + "'");
         }
     }
 
     // Load peer info file
     private static void loadPeerInfoAndStartConnecting()
     {
-        String fileName = "PeerInfo.cfg";
+        String peerInfoConfigFileName = "PeerInfo.cfg";
         String line = null;
         try {
-            FileReader fileReader = new FileReader(fileName);
+            FileReader fileReader = new FileReader(peerInfoConfigFileName);
             BufferedReader bufferedReader = new BufferedReader(fileReader);
             while ((line = bufferedReader.readLine()) != null) {
                 String[] tokens = line.split(" ");
@@ -172,7 +172,7 @@ public class PeerProcess
             bufferedReader.close();
         }
         catch (IOException e) {
-            error("Error reading file '" + fileName + "'");
+            error("Error reading file '" + peerInfoConfigFileName + "'");
         }
     }
 
@@ -352,6 +352,7 @@ public class PeerProcess
         switch (type) {
             case CHOKE:
                 System.out.println("CHOKE received from " + peerId + ".");
+                handleChokeMessage(peerId);
                 break;
             case UNCHOKE:
                 System.out.println("UNCHOKE received from " + peerId + ".");
@@ -382,6 +383,16 @@ public class PeerProcess
                 handlePieceMessage(peerId, payload);
                 break;
         }
+    }
+
+    // Handle a CHOKE message
+    private static void handleChokeMessage(int peerId)
+    {
+        // Remove peer from unchokedPeers
+        unchokedPeers.remove(peerId);
+        // If peer is interested, REQUEST a random piece
+        if (interestedPeers.contains(peerId))
+            handleUnchokeMessage(peerId);
     }
 
     // Handle an UNCHOKE message
@@ -448,7 +459,7 @@ public class PeerProcess
         byte[] pieceMessage = null;
         try {
             // Read piece from file
-            FileReader fileReader = new FileReader(id + "/" + fileName);
+            FileReader fileReader = new FileReader(fileName);
             BufferedReader bufferedReader = new BufferedReader(fileReader);
             bufferedReader.skip(pieceIndex * pieceSize);
             bufferedReader.read(pieceChars, 0, pieceSize);
@@ -461,6 +472,36 @@ public class PeerProcess
         System.arraycopy(ByteBuffer.allocate(4).putInt(pieceIndex).array(), 0, pieceMessage, 0, 4);
         System.arraycopy(new String(pieceChars).getBytes(), 0, pieceMessage, 4, pieceChars.length);
         sendMessage(receivers.get(peerId).out, PIECE, pieceMessage);
+    }
+
+    // Handle a PIECE message
+    private static void handlePieceMessage(int peerId, byte[] payload)
+    {
+        // Get piece index
+        int pieceIndex = ByteBuffer.wrap(Arrays.copyOfRange(payload, 0, 4)).getInt();
+        // Write piece to file
+        try {
+            FileWriter fileWriter = new FileWriter(fileName, true);
+            fileWriter.write(new String(Arrays.copyOfRange(payload, 4, payload.length)));
+            fileWriter.close();
+        } catch (IOException e) {
+            error("Error writing to file '" + fileName + "'");
+        }
+        // Update bitfield
+        bitfield.set(pieceIndex);
+        // Update numPiecesSharedRecently
+        numPiecesSharedRecently.put(peerId, numPiecesSharedRecently.get(peerId) + 1);
+        // Send HAVE message to all peers
+        for (int otherPeerId : receivers.keySet())
+            if (otherPeerId != peerId)
+                sendMessage(receivers.get(otherPeerId).out, HAVE, ByteBuffer.allocate(4).putInt(pieceIndex).array());
+        // If all pieces have been received, send a NOTINTERESTED message to all peers
+        if (bitfield.cardinality() == numPieces) {
+            for (int otherPeerId : receivers.keySet())
+                sendMessage(receivers.get(otherPeerId).out, NOT_INTERESTED, null);
+        } else {
+            handleUnchokeMessage(peerId);
+        }
     }
 
     // Thread for receiving messages from a specific peer
@@ -580,7 +621,6 @@ public class PeerProcess
                     if (previousOptimisticallyUnchokedPeer != -1)
                         sendMessage(receivers.get(previousOptimisticallyUnchokedPeer).out, CHOKE, null);
                 }
-                System.out.println("Optimistically unchoked neighbor is " + optimisticallyUnchokedPeer.get() + ".");
                 // Wait for optimistic unchoking interval
                 try {
                     Thread.sleep(optimisticUnchokingInterval * 1000);
