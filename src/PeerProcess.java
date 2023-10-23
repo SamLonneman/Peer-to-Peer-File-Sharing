@@ -476,21 +476,21 @@ public class PeerProcess
             while (true) {
                 // Replace the current preferred neighbors with the k best interested neighbors
                 updatePreferredNeighbors();
-                // Send choke message to all unchoked neighbors not in preferred neighbors
-                for (Iterator<Integer> iter = unchokedPeers.iterator(); iter.hasNext();) {
-                    int peerId = iter.next();
-                    if (!preferredPeers.contains(peerId)) {
+                // Choke all unchoked neighbors not in the preferred neighbors or the optimistically unchoked neighbor
+                for (int peerId : unchokedPeers) {
+                    if (!preferredPeers.contains(peerId) && peerId != optimisticallyUnchokedPeer.get()) {
                         sendMessage(receivers.get(peerId).out, CHOKE, null);
-                        iter.remove();
+                        unchokedPeers.remove(peerId);
                     }
                 }
-                // Send unchoke message to all preferred neighbors not already unchoked
+                // Unchoke all preferred neighbors not already unchoked
                 for (int peerId : preferredPeers) {
                     if (!unchokedPeers.contains(peerId)) {
                         sendMessage(receivers.get(peerId).out, UNCHOKE, null);
                         unchokedPeers.add(peerId);
                     }
                 }
+                // Log preferred neighbors
                 log("Peer " + id + " has the preferred neighbors " + preferredPeers.toString() + ".");
                 // Wait for unchoking interval
                 try {
@@ -500,35 +500,35 @@ public class PeerProcess
                 }
             }
         }
-    }
 
-    // Get the k best neighbors by number of pieces shared recently
-    private static void updatePreferredNeighbors()
-    {
-        // Get the k best neighbors, sorted first by number of pieces shared recently, then randomly
-        List<Map.Entry<Integer, Integer>> bestNeighbors = new ArrayList<Map.Entry<Integer, Integer>>();
-        List<Map.Entry<Integer, Integer>> numPiecesSharedRecentlyList = new ArrayList<Map.Entry<Integer, Integer>>(numPiecesSharedRecently.entrySet());
-        Collections.shuffle(numPiecesSharedRecentlyList);
-        for (Map.Entry<Integer, Integer> entry : numPiecesSharedRecentlyList) {
-            if (!interestedPeers.contains(entry.getKey())) continue;
-            if (bestNeighbors.size() < numberOfPreferredNeighbors)
-                bestNeighbors.add(entry);
-            else {
-                int minIndex = 0;
-                for (int i = 1; i < bestNeighbors.size(); i++)
-                    if (bestNeighbors.get(i).getValue() < bestNeighbors.get(minIndex).getValue())
-                        minIndex = i;
-                if (entry.getValue() > bestNeighbors.get(minIndex).getValue())
-                    bestNeighbors.set(minIndex, entry);
+        // Get the k best neighbors by number of pieces shared recently
+        private void updatePreferredNeighbors()
+        {
+            // Get up to k best neighbors by number of pieces shared recently
+            List<Integer> bestNeighbors = new ArrayList<Integer>();
+            List<Integer> interestedPeersList = new ArrayList<Integer>(interestedPeers);
+            Collections.shuffle(interestedPeersList);
+            for (int peerId : interestedPeersList) {
+                if (bestNeighbors.size() < numberOfPreferredNeighbors)
+                    bestNeighbors.add(peerId);
+                else {
+                    Collections.shuffle(bestNeighbors);
+                    int minIndex = 0;
+                    for (int i = 1; i < bestNeighbors.size(); i++) {
+                        if (numPiecesSharedRecently.get(bestNeighbors.get(i)) < numPiecesSharedRecently.get(bestNeighbors.get(minIndex)))
+                            minIndex = i;
+                    }
+                    if (numPiecesSharedRecently.get(peerId) > numPiecesSharedRecently.get(bestNeighbors.get(minIndex)))
+                        bestNeighbors.set(minIndex, peerId);
+                }
             }
+            // Update preferred neighbors
+            preferredPeers.clear();
+            preferredPeers.addAll(bestNeighbors);
+            // Reset numPiecesSharedRecently for all peers
+            for (int peerId : numPiecesSharedRecently.keySet())
+                numPiecesSharedRecently.put(peerId, 0);
         }
-        // Replace preferred neighbors with the (up to) k best neighbors
-        preferredPeers.clear();
-        for (Map.Entry<Integer, Integer> entry : bestNeighbors)
-            preferredPeers.add(entry.getKey());
-        // Clear the number of pieces shared recently
-        for (int peerId : numPiecesSharedRecently.keySet())
-            numPiecesSharedRecently.put(peerId, 0);
     }
 
     // Thread for managing the optimistically unchoked neighbor
@@ -537,28 +537,23 @@ public class PeerProcess
         public void run()
         {
             while (true) {
-                if (!interestedPeers.isEmpty()) {
-                    // Store previous optimistically unchoked peer
-                    int previousOptimisticallyUnchokedPeer = optimisticallyUnchokedPeer.get();
-                    // Select a random peer from interested peers
-                    ArrayList<Integer> interestedPeersList = new ArrayList<Integer>(interestedPeers);
-                    Collections.shuffle(interestedPeersList);
-                    if (interestedPeersList.size() > 1 || (interestedPeersList.size() == 1 && previousOptimisticallyUnchokedPeer != interestedPeersList.get(0)))
-                    {
-                        int randomInterestedPeer = interestedPeersList.get(0);
-                        while (randomInterestedPeer == optimisticallyUnchokedPeer.get()) {
-                            randomInterestedPeer = interestedPeersList.get((int)(Math.random() * interestedPeers.size()));
-                        }
-                        optimisticallyUnchokedPeer.set(randomInterestedPeer);
-                    }
-                    // Send unchoke message to peer
-                    sendMessage(receivers.get(optimisticallyUnchokedPeer.get()).out, UNCHOKE, null);
-                    // Send choke message to previous optimistically unchoked peer
-                    if (previousOptimisticallyUnchokedPeer != -1)
-                        sendMessage(receivers.get(previousOptimisticallyUnchokedPeer).out, CHOKE, null);
+                // Get list of choked interested peers
+                List<Integer> chokedInterestedPeers = new ArrayList<Integer>();
+                for (int peerId : interestedPeers)
+                    if (!unchokedPeers.contains(peerId))
+                        chokedInterestedPeers.add(peerId);
+                // If there are any choked interested peers, choose one at random to unchoke
+                if (chokedInterestedPeers.size() > 0) {
+                    int randomIndex = (int)(Math.random() * chokedInterestedPeers.size());
+                    int randomPeerId = chokedInterestedPeers.get(randomIndex);
+                    // choke the current optimistically unchoked neighbor if there is one, and if it is not in the preferred neighbors
+                    if (optimisticallyUnchokedPeer.get() != -1 && !preferredPeers.contains(optimisticallyUnchokedPeer.get()))
+                        sendMessage(receivers.get(optimisticallyUnchokedPeer.get()).out, CHOKE, null);
+                    // unchoke the new optimistically unchoked neighbor
+                    sendMessage(receivers.get(randomPeerId).out, UNCHOKE, null);
+                    optimisticallyUnchokedPeer.set(randomPeerId);
+                    log("Peer " + id + " has the optimistically unchoked neighbor " + optimisticallyUnchokedPeer.get() + ".");
                 }
-                log("Peer " + id + " has the optimistically unchoked neighbor " + optimisticallyUnchokedPeer.get() + ".");
-                // Wait for optimistic unchoking interval
                 try {
                     Thread.sleep(optimisticUnchokingInterval * 1000);
                 } catch (InterruptedException e) {
