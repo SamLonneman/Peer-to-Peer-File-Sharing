@@ -362,7 +362,6 @@ public class PeerProcess
     // Send a CHOKE message
     private static void sendChokeMessage(int peerId)
     {
-        System.out.println(id + " is sending CHOKE to " + peerId);
         if (unchokedNeighbors.contains(peerId)) {
             unchokedNeighbors.remove(peerId);
             sendMessage(peerId, CHOKE, null);
