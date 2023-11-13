@@ -201,7 +201,7 @@ public class PeerProcess
             peerSockets.add(peerSocket);
             // Send handshake message
             sendMessage(peerOut, new HandshakeMessage(id));
-            log("Peer " + id + " makes a connection to Peer at port " + peerPort + ".");
+            log("Peer " + id + " makes a connection to Peer " + peerId + ".");
         } catch (IOException e) {
             error("Error connecting to peer " + peerId + " at " + peerAddress + ":" + peerPort);
         }
