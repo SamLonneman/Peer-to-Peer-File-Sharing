@@ -168,6 +168,7 @@ public class PeerProcess
                     numConnectionsToListenFor++;
                 }
             }
+            // listenForConnections();
             listenerThread.start();
             bufferedReader.close();
         }
@@ -219,6 +220,8 @@ public class PeerProcess
                 peerOutStreams.put(peerSocket, peerOut);
                 peerInStreams.put(peerSocket, peerIn);
                 peerSockets.add(peerSocket);
+                // Send handshake message
+                sendMessage(peerOut, new HandshakeMessage(id));
             }
             serverSocket.close();
         } catch (IOException e) {
@@ -229,6 +232,8 @@ public class PeerProcess
     public static void sendMessage(ObjectOutputStream out, Object message)
     {
         try {
+            // Write 1 byte to keep in.available() from returning 0 when there is a message
+            out.writeByte(0xff);
             out.writeObject(message);
             out.flush();
         } catch (IOException e) {
@@ -236,23 +241,49 @@ public class PeerProcess
         }
     }
 
+    public static boolean hasMessage(ObjectInputStream in)
+    {
+        try {
+            if (in.available() > 0) {
+                in.readByte();
+                return true;
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+    public static Object receiveMessage(ObjectInputStream in)
+    {
+        try {
+            return in.readObject();
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
     public static void worker()
     {
         // Main loop
         while (true) {
-            // Check for messages from neighbors
+            // Check if it is time to update preferred neighbors
+            // Check if it is time to update optimistically unchoked neighbor
+            // Check for messages from each neighbor
             for (Socket peerSocket : peerSockets) {
-                try {
-                    // If there is no message, skip this neighbor
-                    ObjectInputStream in = peerInStreams.get(peerSocket);
-                    if (in.available() == 0)
-                        continue;
-                    // Otherwise, read the message and handle it
-                    Object messageObject = in.readObject();
+                ObjectInputStream in = peerInStreams.get(peerSocket);
+                // Only proceed if there is a message ready, otherwise, skip to next peer
+                if (hasMessage(in)) {
+                    // Read the message
+                    Object messageObject = receiveMessage(in);
                     // Handshake messages are handled differently
                     if (messageObject instanceof HandshakeMessage) {
                         HandshakeMessage handshakeMessage = (HandshakeMessage)messageObject;
                         handleHandshakeMessage(handshakeMessage, peerSocket);
+                    // All other messages are handled the same way
                     } else if (messageObject instanceof Message) {
                         Message message = (Message)messageObject;
                         if (message.type == CHOKE) {
@@ -275,10 +306,6 @@ public class PeerProcess
                     } else {
                         error("Received unknown message type.");
                     }
-                } catch (IOException e) {
-                    error("Error reading message1.");
-                } catch (ClassNotFoundException e) {
-                    error("Error reading message2.");
                 }
             }
         }
@@ -286,6 +313,7 @@ public class PeerProcess
 
     public static void handleHandshakeMessage(HandshakeMessage handshakeMessage, Socket peerSocket)
     {
+        // If we are missing the peer's ID, store it and log the connection
         if (!peerIds.containsKey(peerSocket)) {
             peerIds.put(peerSocket, handshakeMessage.peerId);
             log("Peer " + id + " is connected from Peer " + handshakeMessage.peerId + ".");
