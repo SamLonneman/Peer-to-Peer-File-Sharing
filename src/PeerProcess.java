@@ -284,7 +284,7 @@ public class PeerProcess
                         HandshakeMessage handshakeMessage = (HandshakeMessage)messageObject;
                         handleHandshakeMessage(handshakeMessage, peerSocket);
                     // All other messages are handled the same way
-                    } else if (messageObject instanceof Message) {
+                    } else {
                         Message message = (Message)messageObject;
                         if (message.type == CHOKE) {
                             System.out.println("Peer " + id + " received" + " CHOKE from Peer " + peerIds.get(peerSocket));
@@ -303,8 +303,6 @@ public class PeerProcess
                         } else if (message.type == PIECE) {
                             System.out.println("Peer " + id + " received" + " PIECE from Peer " + peerIds.get(peerSocket));
                         }
-                    } else {
-                        error("Received unknown message type.");
                     }
                 }
             }
