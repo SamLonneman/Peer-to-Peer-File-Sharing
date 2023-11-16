@@ -6,6 +6,13 @@
     "configurations": [
         {
             "type": "java",
+            "name": "Test",
+            "request": "launch",
+            "mainClass": "Test",
+            "projectName": "ComputerNetworkingProject_87c3bcfc"
+        },
+        {
+            "type": "java",
             "name": "TestReceiver",
             "request": "launch",
             "mainClass": "TestReceiver",
