@@ -23,7 +23,7 @@ public class PeerProcess
 {
     // Global debug constants
     public static final boolean WRITE_LOGS = true;
-    public static final boolean PRINT_LOGS = false;
+    public static final boolean PRINT_LOGS = true;
     public static final boolean PRINT_ERRS = true;
 
     // Global message type constants
@@ -306,7 +306,7 @@ public class PeerProcess
     public static void sendMessage(ObjectOutputStream out, Object message)
     {
         try {
-            // Write 1 byte to keep in.available() from returning 0 when there is a message
+            // Write 1 byte to keep ObjectInputStream.available() from returning 0 when there is a message
             out.writeByte(0xff);
             out.writeObject(message);
             out.flush();
@@ -347,12 +347,22 @@ public class PeerProcess
     {
         // Main loop
         while (true) {
-            // Check if all peers are finished
-            if (hasFile) {
+            // If we have the file and have connected to other peers, check if all peers have finished
+            if (hasFile && !peerSockets.isEmpty()) {
+                boolean allPeersFinished = true;
                 for (Socket peerSocket : peerSockets) {
-                    if (peerBitfields.get(peerSocket).cardinality() < numPieces)
+                    if (peerBitfields.get(peerSocket).cardinality() < numPieces) {
+                        allPeersFinished = false;
                         break;
-                    System.out.println("DONE");
+                    }
+                }
+                // If all peers have finished, wait for a second to let messages finish propagating, then exit
+                if (allPeersFinished) {
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
                     System.exit(0);
                 }
             }       
