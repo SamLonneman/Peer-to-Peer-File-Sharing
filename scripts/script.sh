@@ -18,7 +18,6 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     echo "ID: $id, Host: $host, Port: $port, Flag: $flag"
 
     ssh jacobimmich@$host <<ENDSSH
-        echo "hello from $host, ID: $id"
         cd project
         java -cp bin PeerProcess $id
 
