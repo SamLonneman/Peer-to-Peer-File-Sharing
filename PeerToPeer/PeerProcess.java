@@ -356,10 +356,10 @@ public class PeerProcess
                         break;
                     }
                 }
-                // If all peers have finished, wait for a second to let messages finish propagating, then exit
+                // If all peers have finished, wait for 2 seconds to let messages finish propagating, then exit
                 if (allPeersFinished) {
                     try {
-                        Thread.sleep(1000);
+                        Thread.sleep(2000);
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
