@@ -1,0 +1,7 @@
+/.vscode
+/bin
+/lib
+/src
+*.class
+*.log
+out
