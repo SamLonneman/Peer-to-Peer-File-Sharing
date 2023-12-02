@@ -24,7 +24,7 @@ public class PeerProcess
     // Global debug constants
     public static final boolean WRITE_LOGS = true;
     public static final boolean PRINT_LOGS = true;
-    public static final boolean PRINT_ERRS = true;
+    public static final boolean PRINT_ERRS = false;
 
     // Global message type constants
     public static final byte CHOKE = 0;
@@ -296,6 +296,9 @@ public class PeerProcess
             peerDownloadRates.put(peerSocket, 0);
             pendingPieces.put(peerSocket, -1);
             peerSockets.add(peerSocket);
+            // When a new peer is added and we have room for more preferred neighbors, update preferred neighbors
+            if (peerSockets.size() < numberOfPreferredNeighbors)
+                timeToUpdatePreferredNeighbors = true;
             sendMessage(peerOut, new HandshakeMessage(id));
         } catch (IOException e) {
             error("Error initializing peer.");
