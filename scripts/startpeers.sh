@@ -17,7 +17,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 
     echo "ID: $id, Host: $host, Port: $port, Flag: $flag"
 
-    ssh jacobimmich@$host <<ENDSSH
+    ssh $USER@$host <<ENDSSH
         cd project
         java -cp bin PeerProcess $id
 
