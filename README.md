@@ -69,6 +69,8 @@ ssh <gatorlink_username>@lin114-05.cise.ufl.edu
 
 Transferred files will appear in each peer's individual directory, and log files will be generated in `~/PeerToPeer`
 
+**Note:** To run locally, simply replace each hostname in `PeerInfo.cfg` with `localhost`, then compile and run in multiple terminal instances on your local machine.
+
 ## Playbook (alternative)
 TODO: JACOB please fill in this section
 
