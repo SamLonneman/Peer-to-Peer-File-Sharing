@@ -296,9 +296,6 @@ public class PeerProcess
             peerDownloadRates.put(peerSocket, 0);
             pendingPieces.put(peerSocket, -1);
             peerSockets.add(peerSocket);
-            // When a new peer is added and we have room for more preferred neighbors, update preferred neighbors
-            if (peerSockets.size() < numberOfPreferredNeighbors)
-                timeToUpdatePreferredNeighbors = true;
             sendMessage(peerOut, new HandshakeMessage(id));
         } catch (IOException e) {
             error("Error initializing peer.");
@@ -625,18 +622,15 @@ public class PeerProcess
             if (!preferredNeighbors.contains(peerSocket) && peerSocket != optimisticallyUnchokedNeighbor)
                 sendMessage(peerOutStreams.get(peerSocket), new Message(CHOKE));
         }
-        // Log the new preferred neighbors if they have changed
-        if (!previousPreferredNeighbors.equals(preferredNeighbors)) {
-            // Generate string of preferred neighbors for logging
-            String preferredNeighborsString = "";
-            for (Socket peerSocket : preferredNeighbors)
-                preferredNeighborsString += peerIds.get(peerSocket) + ", ";
-            // Remove trailing comma and space
-            if (preferredNeighborsString.length() > 0)
-                preferredNeighborsString = preferredNeighborsString.substring(0, preferredNeighborsString.length() - 2);
-            // Log the new preferred neighbors
-            log("Peer " + id + " has the preferred neighbors " + preferredNeighborsString + ".");
-        }
+        // Generate string of preferred neighbors for logging
+        String preferredNeighborsString = "";
+        for (Socket peerSocket : preferredNeighbors)
+            preferredNeighborsString += peerIds.get(peerSocket) + ", ";
+        // Remove trailing comma and space
+        if (preferredNeighborsString.length() > 0)
+            preferredNeighborsString = preferredNeighborsString.substring(0, preferredNeighborsString.length() - 2);
+        // Whether or not the preferred neighbors have changed, log them
+        log("Peer " + id + " has the preferred neighbors " + preferredNeighborsString + ".");
     }
 
     // Update the optimistically unchoked neighbor
@@ -656,7 +650,8 @@ public class PeerProcess
             // Set the new optimistically unchoked neighbor and unchoke it
             optimisticallyUnchokedNeighbor = newOptimisticallyUnchokedNeighbor;
             sendMessage(peerOutStreams.get(optimisticallyUnchokedNeighbor), new Message(UNCHOKE));
-            log("Peer " + id + " has the optimistically unchoked neighbor " + peerIds.get(optimisticallyUnchokedNeighbor) + ".");
         }
+        // Whether or not the optimistically unchoked neighbor changed, log it
+        log("Peer " + id + " has the optimistically unchoked neighbor " + peerIds.get(optimisticallyUnchokedNeighbor) + ".");
     }
 }
