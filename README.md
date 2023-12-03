@@ -72,7 +72,29 @@ Transferred files will appear in each peer's individual directory, and log files
 **Note:** To run locally, simply replace each hostname in `PeerInfo.cfg` with `localhost`, then compile and run in multiple terminal instances on your local machine.
 
 ## Playbook (alternative)
-TODO: JACOB please fill in this section
+Alternatively, in order to run the peer-to-peer project on CISE Linux servers, you can make use of the scripts provided in `/scripts`.
+**Note:** ensure that the `PeerInfo.cfg` includes valid CISE hostnames.
+
+An example configuration for using the CISE machines:
+```
+1001 lin114-00.cise.ufl.edu 6008 1
+1002 lin114-01.cise.ufl.edu 6008 0
+1003 lin114-02.cise.ufl.edu 6008 0
+1004 lin114-03.cise.ufl.edu 6008 0
+1005 lin114-04.cise.ufl.edu 6008 0
+1006 lin114-05.cise.ufl.edu 6008 0
+```
+There are two bash scripts for running the program on the Linux servers.
+
+`deploy.sh`  creates an archive of the project and copies it to one of CISE's main servers.
+
+`startpeers.sh` read the `PeerInfo.cfg` and SSH's into each server and starts `PeerProcess.java`.
+
+In order to make use of the scripts when not on UF's wifi network, the user must first connect to the UF VPN using their gatorlink credentials. Once connected, the user should modify the user variable `export USER=example-username` to match their gatorlink username. When running each script, the user will be asked for their password. This password is the same as their gatorlink password.
+
+To copy the project onto the remote machines, the user must run `./deploy.sh`. Once that is complete, the user should run `./startpeers.sh` and login to each server.
+
+Once each peer process is running, the user can ssh into the machines and check their respective directories, `peer_ID/` for the files. Additionally, the user can view each log file `log_peer_ID.log`.
 
 ## Project Overview
 The main goal of this project is to implement the principles of a peer to peer file sharing system. Specifically, the protocol below is a simplified version of BitTorrent. One of the main focuses of this project is the unique choking-unchoking mechanism that happens between peers. The algorithm of a single peer process and a brief description of the protocol are explained below.
